@@ -15,6 +15,7 @@
 #define INPUT_FILENAME "Original.wav"
 #define OUTPUT_FILENAME "Copy.wav"
 #define NUM_SAMPLES_IN_FRAME 1024
+#define NUM_CHANNELS 1
 
 #define MUTE_LEFT 0
 #define DELAY_IN_SAMPLES 1000
@@ -53,6 +54,13 @@ int main() {
         return_value = EXIT_FAILURE;
         goto CLEAN_UP;
     }
+
+    // Check input file is mono
+    if (audio_properties.chans != NUM_CHANNELS) {
+            printf("Input audio file must be mono.\n");
+            return_value = EXIT_FAILURE;
+            goto CLEAN_UP;
+    }
   
 
     // Open the output file
@@ -66,8 +74,7 @@ int main() {
   
 
     // Allocate memory for frame.
-    if ((buffer = (float*)malloc(nFrames
-        *audio_properties.chans*sizeof(float)))==NULL) {
+    if ((buffer = (float*)malloc(nFrames*audio_properties.chans*sizeof(float)))==NULL) {
 
         printf("Unable to allocate memory for frame.\n");
         return_value = EXIT_FAILURE;
@@ -76,8 +83,6 @@ int main() {
 
     // Read frames from input file
     while ((num_frames_read=psf_sndReadFloatFrames(in_fID, buffer, nFrames)) > 0) { 
-
-        printf("%lu\n",sizeof buffer/sizeof buffer[0]);
 
         // Write the frame to the output file
         if (psf_sndWriteFloatFrames(out_fID,buffer,num_frames_read)!=num_frames_read) {
