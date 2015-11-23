@@ -37,7 +37,6 @@ int main() {
     float *buffer = NULL;
     long num_frames_read;
     int return_value = EXIT_SUCCESS;
-  
 
     // Initialise portsf library
     if(psf_init()) {
@@ -55,7 +54,7 @@ int main() {
         goto CLEAN_UP;
     }
 
-    // Check input file is mono
+    // Check input file has correct number of channels
     if (audio_properties.chans != NUM_CHANNELS) {
             printf("Input audio file must be mono.\n");
             return_value = EXIT_FAILURE;
@@ -81,11 +80,17 @@ int main() {
         goto CLEAN_UP;
     }
 
+    double ring_buffer[126] = {0};
+
     // Read frames from input file
     while ((num_frames_read=psf_sndReadFloatFrames(in_fID, buffer, nFrames)) > 0) { 
 
+        for (int z = 0; z < nFrame; z++) {
+            // circular buffer here
+        }
+
         // Write the frame to the output file
-        if (psf_sndWriteFloatFrames(out_fID,buffer,num_frames_read)!=num_frames_read) {
+        if (psf_sndWriteFloatFrames(out_fID,buffer2,num_frames_read)!=num_frames_read) {
             printf("Unable to write to %s\n",OUTPUT_FILENAME);
             return_value = EXIT_FAILURE;
             break;
