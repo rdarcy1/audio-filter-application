@@ -34,7 +34,7 @@ int main() {
     int in_fID = INVALID_PORTSF_FID;
     int out_fID = INVALID_PORTSF_FID;
     PSF_PROPS audio_properties;    
-    float *buffer = NULL;
+    float *input_buffer = NULL, *output_buffer = NULL;
     long num_frames_read;
     int return_value = EXIT_SUCCESS;
 
@@ -72,25 +72,32 @@ int main() {
     }
   
 
-    // Allocate memory for frame.
-    if ((buffer = (float*)malloc(nFrames*audio_properties.chans*sizeof(float)))==NULL) {
+    // Calculate memory required for input and output buffers.
+    int buffer_memory = nFrames*audio_properties.chans*sizeof(float);
 
-        printf("Unable to allocate memory for frame.\n");
+    // Allocate memory for buffers
+    input_buffer = (float*) malloc(buffer_memory);
+    output_buffer = (float*) malloc(buffer_memory);
+
+    // Check that memory has been allocated.
+    if (input_buffer == NULL || output_buffer == NULL) {
+
+        printf("Unable to allocate memory for buffer.\n");
         return_value = EXIT_FAILURE;
         goto CLEAN_UP;
     }
 
-    double ring_buffer[126] = {0};
+    // Create ring buffer
 
     // Read frames from input file
-    while ((num_frames_read=psf_sndReadFloatFrames(in_fID, buffer, nFrames)) > 0) { 
+    while ((num_frames_read=psf_sndReadFloatFrames(in_fID, input_buffer, nFrames)) > 0) { 
 
-        for (int z = 0; z < nFrame; z++) {
+        for (int z = 0; z < nFrames; z++) {
             // circular buffer here
         }
 
         // Write the frame to the output file
-        if (psf_sndWriteFloatFrames(out_fID,buffer2,num_frames_read)!=num_frames_read) {
+        if (psf_sndWriteFloatFrames(out_fID,output_buffer,num_frames_read)!=num_frames_read) {
             printf("Unable to write to %s\n",OUTPUT_FILENAME);
             return_value = EXIT_FAILURE;
             break;
@@ -108,8 +115,11 @@ int main() {
 CLEAN_UP:
 
     // Free the memory for the frame
-    if (buffer)
-        free(buffer);
+    if (input_buffer)
+        free(input_buffer);
+
+    if (output_buffer)
+        free(output_buffer);
 
     // Close the output file
     if (out_fID>=0)

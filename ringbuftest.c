@@ -31,20 +31,16 @@ int main () {
 
 		// Calculate sample to be output
 		for (int x=0; x<5; x++) {
-			current_val += (x+1)*myBuf->buffer[wrap(y-x,myBuf->length)];
+			current_val += (x+1)*myBuf->buffer[wrap(myBuf->current_index-x,myBuf->length)];
 			printf("%d x %d\t",x+1, myBuf->buffer[wrap(y-x,myBuf->length)]);
 		}
 
+		// Increment the current index, wrapping so it does not exceed buffer length
+		// No need to call wrap() as current_index cannot be negative
+		myBuf->current_index = (myBuf->current_index + 1) % myBuf->length;
+
 		printf("%d\n", current_val);
 	}
-
-		
-	
-
-	// for (int x=0;x<myBuf->length;x++) {
-	// 	printf("%d\n", myBuf->buffer[x]);
-	// 	// printf("%d\n", wrap(-x,19));
-	// }
 
 	RingBuffer_destroy(myBuf);
 
@@ -53,18 +49,18 @@ int main () {
 
 RingBuffer *RingBuffer_create(int length)
 {
+	// Create new buffer, allocate memory and initialise to 0
     RingBuffer *new_buffer = calloc(1, sizeof(RingBuffer));
     new_buffer->length  = length;
     new_buffer->buffer = calloc(new_buffer->length, sizeof(new_buffer->length));
+    new_buffer->current_index = 0;
 
     return new_buffer;
-
-    // error:
-    // 	return NULL;
 }
 
 void RingBuffer_destroy(RingBuffer *buffer_to_destroy)
 {
+	// Free allocated memory
     if(buffer_to_destroy) {
         free(buffer_to_destroy->buffer);
         free(buffer_to_destroy);
@@ -78,8 +74,9 @@ int buffer_index (RingBuffer *buffer, int offset)
 	return (int)fmod(offset, buffer->length);
 }
 
+
+// Wraps value between 0 and max; works with negative value
 int wrap (int value, int max)
 {
-	// int ret = value - mavalue*floor(value/mavalue);
-	return (((value < 0) ? ((value % max) + max) : value) % max);
+	return ((value < 0) ? ((value % max) + max) : value) % max;
 }
