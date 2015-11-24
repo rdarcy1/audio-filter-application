@@ -65,7 +65,6 @@ void RingBuffer_destroy(RingBuffer *buffer_to_destroy)
         free(buffer_to_destroy->buffer);
         free(buffer_to_destroy);
     }
-    return;
 }
 
 int buffer_index (RingBuffer *buffer, int offset)
