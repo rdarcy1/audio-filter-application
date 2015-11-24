@@ -18,33 +18,28 @@ int buffer_index (RingBuffer *buffer, int offset);
 int wrap (int value, int max);
 
 int main () {
-	RingBuffer *myBuf = RingBuffer_create(10);
+	RingBuffer *myBuf = RingBuffer_create(5);
 	
+	int test_array[] = {4,9,2,3,1,1};
+	int current_val;
+	for (int y=0; y<sizeof test_array/sizeof test_array[0]; y++) {
 
-	int array[100];
-	for (int y=0; y<100; y++) {
-		array[y] = y;
-		myBuf->buffer[wrap(y,myBuf->length)] = 0;
+		current_val = 0;
+
+		// Write value to ring buffer
+		myBuf->buffer[wrap(y,myBuf->length)] = test_array[y];
+
+		// Calculate sample to be output
+		for (int x=0; x<5; x++) {
+			current_val += (x+1)*myBuf->buffer[wrap(y-x,myBuf->length)];
+			printf("%d x %d\t",x+1, myBuf->buffer[wrap(y-x,myBuf->length)]);
+		}
+
+		printf("%d\n", current_val);
 	}
 
-	for (int x=0;x<myBuf->length;x++) {
-		printf("%d\n", myBuf->buffer[x]);
-	}
-	int offset = 8;
-
-	int current_val, prev_val = 0;
-	puts("x\tindex\tcur\tprev");
-	for (int x=0;x<200;x++) {
-		myBuf->buffer[(int)fmod(x,myBuf->length)] = x;
-
-		current_val = myBuf->buffer[wrap(x,myBuf->length)];
-
-		prev_val = myBuf->buffer[wrap(x-offset,myBuf->length)];
-
-
-		printf("%d\t%d\t%d\t%d\n",x,(int)fmod(x,myBuf->length),current_val,prev_val);
 		
-	}
+	
 
 	// for (int x=0;x<myBuf->length;x++) {
 	// 	printf("%d\n", myBuf->buffer[x]);
