@@ -32,19 +32,10 @@ typedef struct {
     int length;
 } RingBuffer;
 
-typedef struct {
-    double *coefficient;
-} coeffs;
-
 // Prototype functions
 double sinc (double x);
-
 RingBuffer *RingBuffer_create (int length);
-
 void RingBuffer_destroy (RingBuffer *buffer_to_destroy);
-
-int buffer_index (RingBuffer *buffer, int offset);
-
 int wrap (int value, int max);
 
 enum float_clipping { DO_NOT_CLIP_FLOATS, CLIP_FLOATS };
@@ -61,8 +52,14 @@ int main() {
     int return_value = EXIT_SUCCESS;
     
     // Declare buffers
-    float *input_buffer = NULL, *output_buffer = NULL;
+    float *input_buffer = NULL;
+    float *output_buffer = NULL;
     RingBuffer *ringBuf = NULL;
+
+    // Coefficient variables
+    int N = 126;
+    double cutoff = 220;
+    double coefficients[N+1];
 
     // Initialise portsf library
     if(psf_init()) {
@@ -105,7 +102,6 @@ int main() {
     input_buffer = (float*) malloc(buffer_memory);
     output_buffer = (float*) malloc(buffer_memory);
     ringBuf = RingBuffer_create(RING_BUF_LENGTH);
-    printf("%d\n", ringBuf->current_index);
 
     // Check that memory has been allocated.
     if (input_buffer == NULL || output_buffer == NULL || ringBuf == NULL) {
@@ -114,7 +110,11 @@ int main() {
         goto CLEAN_UP;
     }
 
-
+    // Calculate coefficients
+    for (int x = 0; x <= N; x++) {
+        coefficients[x] = (0.54 - 0.46 * cos((2*M_PI*x)/N)) * 
+            (((2*cutoff)/SAMPLE_FREQUENCY) * sinc(((2*x - N)*cutoff)/SAMPLE_FREQUENCY));
+    }
 
     // Read frames from input file into input buffer
     while ((num_frames_read=psf_sndReadFloatFrames(in_fID, input_buffer, nFrames)) > 0) { 
@@ -124,7 +124,14 @@ int main() {
             // Assign sample from input buffer to ring buffer
             ringBuf->buffer[ringBuf->current_index] = input_buffer[z];
 
-            output_buffer[z] = ringBuf->buffer[ringBuf->current_index];
+            // Clear current output buffer sample
+            output_buffer[z] = 0;
+
+            // Apply filter using coefficients
+            for (int x = 0; x <= N; x++) {
+                output_buffer[z] += coefficients[x] * 
+                    ringBuf->buffer[wrap((ringBuf->current_index) - x,ringBuf->length)];
+            }
 
             // Increment the current index, wrapping so it does not exceed buffer length
             // No need to call wrap() as current_index cannot be negative
@@ -151,12 +158,12 @@ int main() {
 CLEAN_UP:
 
     // Free the memory for the buffers
-    if (input_buffer)
+    if (input_buffer) {
         free(input_buffer);
-
-    if (output_buffer)
+        puts("Input buffer freed.");}
+    if (output_buffer) {
         free(output_buffer);
-
+        puts("Output buffer freed.");}
     RingBuffer_destroy(ringBuf);
 
     // Close the output file
@@ -175,32 +182,20 @@ CLEAN_UP:
 
 // Sinc function
 double sinc (double x) {
-    if (!x) return 1;
-    return sin(M_PI*x)/(M_PI*x);
-}
+    // if (!x) return 1;
+    // return sin(M_PI*x)/(M_PI*x);
 
-coeffs *calculate_coefficients (double cutoff, int N) {
-
-    coeffs *new_coefficients = calloc(1, sizeof(coeffs));
-    new_coefficients->coefficients = calloc(N+1, sizeof(double));
-
-    for (int x = 0; x <= N; x++) {
-        coefficients[x] = (0.54 - 0.46 * cos((2*M_PI*x)/N)) * 
-            (((2*cutoff)/SAMPLE_FREQUENCY) * sinc(((2*x - N)*cutoff)/SAMPLE_FREQUENCY));
-    }
-
-    return new_coefficients;
-
+    return x ? sin(M_PI*x)/(M_PI*x) : 1;
 }
 
 // Create new ring buffer
 RingBuffer *RingBuffer_create(int length)
 {
-    // Allocate memory for struct and buffer array within struct, and initialise them to 0
+    // Allocate memory for struct and initialise to 0
     RingBuffer *new_buffer = calloc(1, sizeof(RingBuffer));
-    new_buffer->buffer = calloc(new_buffer->length, sizeof(float));
-
     new_buffer->length  = length;
+    // Allocate memory for struct and initialise to 0
+    new_buffer->buffer = calloc(new_buffer->length, sizeof(float));
     new_buffer->current_index = 0;
 
     return new_buffer;
@@ -213,12 +208,6 @@ void RingBuffer_destroy(RingBuffer *buffer_to_destroy)
         free(buffer_to_destroy->buffer);
         free(buffer_to_destroy);
     }
-}
-
-int buffer_index (RingBuffer *buffer, int offset)
-{
-    if (!(offset >= 0)) offset = 0;
-    return (int)fmod(offset, buffer->length);
 }
 
 // Wraps value between 0 and max; works with negative value
