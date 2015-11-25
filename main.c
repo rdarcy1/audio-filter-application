@@ -8,10 +8,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
 #include "portsf.h"
 
-#define INPUT_FILENAME "Original.wav"
-#define OUTPUT_FILENAME "Copy.wav"
 #define NUM_SAMPLES_IN_FRAME 1024
 #define NUM_CHANNELS 1
 #define RING_BUF_LENGTH 50
@@ -42,7 +41,7 @@ enum float_clipping { DO_NOT_CLIP_FLOATS, CLIP_FLOATS };
 enum minheader { DO_NOT_MINIMISE_HDR, MINIMISE_HDR };
 enum auto_rescale { DO_NOT_AUTO_RESCALE, AUTO_RESCALE };  
 
-int main() {
+int main( int argc, char *argv[]) {
 
     DWORD nFrames = NUM_SAMPLES_IN_FRAME; 
     int in_fID = INVALID_PORTSF_FID;
@@ -58,8 +57,49 @@ int main() {
 
     // Coefficient variables
     int N = 126;
-    double cutoff = 220;
-    double coefficients[N+1];
+    double *coefficients = malloc((N+1)*sizeof(double));
+    int parameter_error = 0;
+    double cutoff = 0;
+    char *input_filename = NULL;
+    char *output_filename = NULL;
+    int mem_error = 0;
+
+    // Check old filename, new filename and cutoff have been supplied
+    if (!argv[1] || !argv[2] || !argv[3]) parameter_error = 1;
+
+    // Compulsory command line arguments
+    if (argv[1]) {
+        if ((input_filename = malloc(sizeof(argv[1]))) == NULL)
+            mem_error = 1;
+        strcpy(input_filename,argv[1]);
+    }
+
+    if (argv[2]) {
+        if ((output_filename = malloc(sizeof(argv[2]))) == NULL)
+            mem_error = 1;
+        strcpy(output_filename,argv[2]);
+    }
+
+    if (argv[3]) {
+        cutoff = atof(argv[3]);
+    }
+
+    if (mem_error) {
+        puts("Unable to allocate memory for input and/or output filenames.");
+        goto CLEAN_UP;
+    }
+
+    if (parameter_error) {
+        printf("Usage: %s <old_file.wav> <new_file.wav> <filter cutoff>\n", argv[0]);
+        goto CLEAN_UP;
+    }
+
+    // Optional command line arguments
+    for (int a = 1; a < argc; a++) {
+        printf("%s\n", argv[a]);
+    }
+
+    
 
     // Initialise portsf library
     if(psf_init()) {
@@ -69,10 +109,10 @@ int main() {
   
 
     // Open the input file
-    if ((in_fID = psf_sndOpen(INPUT_FILENAME, &audio_properties,
+    if ((in_fID = psf_sndOpen(input_filename, &audio_properties,
         DO_NOT_AUTO_RESCALE))<0) {
 
-        printf("Unable to open file %s\n",INPUT_FILENAME);
+        printf("Unable to open file %s\n",input_filename);
         return_value = EXIT_FAILURE;
         goto CLEAN_UP;
     }
@@ -86,10 +126,10 @@ int main() {
   
 
     // Open the output file
-    if ((out_fID = psf_sndCreate(OUTPUT_FILENAME, &audio_properties,
+    if ((out_fID = psf_sndCreate(output_filename, &audio_properties,
         CLIP_FLOATS, DO_NOT_MINIMISE_HDR, PSF_CREATE_RDWR))<0) {
         
-        printf("Unable to open file %s\n",OUTPUT_FILENAME);
+        printf("Unable to open file %s\n",output_filename);
         return_value = EXIT_FAILURE;
         goto CLEAN_UP;
     }
@@ -127,7 +167,7 @@ int main() {
             // Clear current output buffer sample
             output_buffer[z] = 0;
 
-            // Apply filter using coefficients
+            // Apply filter using coefficients and assign to output buffer
             for (int x = 0; x <= N; x++) {
                 output_buffer[z] += coefficients[x] * 
                     ringBuf->buffer[wrap((ringBuf->current_index) - x,ringBuf->length)];
@@ -141,7 +181,7 @@ int main() {
 
         // Write the output buffer to the output file
         if (psf_sndWriteFloatFrames(out_fID,output_buffer,num_frames_read)!=num_frames_read) {
-            printf("Unable to write to %s\n",OUTPUT_FILENAME);
+            printf("Unable to write to %s\n",output_filename);
             return_value = EXIT_FAILURE;
             break;
         }
@@ -151,7 +191,7 @@ int main() {
     // Handle errors when reading from input file
     if (num_frames_read<0) {
         printf("Error reading file %s. The output file (%s) is incomplete.\n",
-            INPUT_FILENAME,OUTPUT_FILENAME);
+            input_filename,output_filename);
         return_value = EXIT_FAILURE;
     }
 
@@ -159,13 +199,31 @@ CLEAN_UP:
 
     // Free the memory for the buffers
     if (input_buffer) {
+        puts("Freeing input buffer");
         free(input_buffer);
-        puts("Input buffer freed.");}
+        puts("input buffer freed.");
+    }
     if (output_buffer) {
+        puts("Freeing output buffer");
         free(output_buffer);
-        puts("Output buffer freed.");}
+        puts("output buffer freed.");
+    }
+
     RingBuffer_destroy(ringBuf);
 
+    if (coefficients)
+        free(coefficients);
+
+    if (input_filename) {
+        puts("Freeing input_filename");
+        free (input_filename);
+        puts("input filename freed.");
+    }
+
+    if (output_filename) {
+        free (output_filename);
+        puts("output filename freed.");
+    }
     // Close the output file
     if (out_fID>=0)
         psf_sndClose(out_fID);
@@ -182,9 +240,6 @@ CLEAN_UP:
 
 // Sinc function
 double sinc (double x) {
-    // if (!x) return 1;
-    // return sin(M_PI*x)/(M_PI*x);
-
     return x ? sin(M_PI*x)/(M_PI*x) : 1;
 }
 
@@ -193,9 +248,11 @@ RingBuffer *RingBuffer_create(int length)
 {
     // Allocate memory for struct and initialise to 0
     RingBuffer *new_buffer = calloc(1, sizeof(RingBuffer));
+    if (new_buffer == NULL) return NULL;
     new_buffer->length  = length;
-    // Allocate memory for struct and initialise to 0
+    // Allocate memory for buffer array and initialise to 0
     new_buffer->buffer = calloc(new_buffer->length, sizeof(float));
+    if (new_buffer->buffer == NULL) return NULL;
     new_buffer->current_index = 0;
 
     return new_buffer;
