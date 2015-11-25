@@ -64,24 +64,27 @@ int main( int argc, char *argv[]) {
     char *output_filename = NULL;
     int mem_error = 0;
 
-    // Check old filename, new filename and cutoff have been supplied
-    if (!argv[1] || !argv[2] || !argv[3]) parameter_error = 1;
-
     // Compulsory command line arguments
-    if (argv[1]) {
+
+    // Check old filename, new filename and cutoff have been supplied
+    if (!argv[1] || !argv[2] || !argv[3]) {
+        parameter_error = 1;
+    } else {
+        // Copy arguments to sensibly named variables
         if ((input_filename = malloc(sizeof(argv[1]))) == NULL)
             mem_error = 1;
-        strcpy(input_filename,argv[1]);
-    }
+        else
+            strcpy(input_filename,argv[1]);
 
-    if (argv[2]) {
+    
         if ((output_filename = malloc(sizeof(argv[2]))) == NULL)
             mem_error = 1;
-        strcpy(output_filename,argv[2]);
-    }
+        else
+            strcpy(output_filename,argv[2]);
 
-    if (argv[3]) {
-        cutoff = atof(argv[3]);
+        if ((cutoff = atof(argv[3])) <= 0)
+            parameter_error = 1;
+    
     }
 
     if (mem_error) {
@@ -90,13 +93,13 @@ int main( int argc, char *argv[]) {
     }
 
     if (parameter_error) {
-        printf("Usage: %s <old_file.wav> <new_file.wav> <filter cutoff>\n", argv[0]);
+        printf("Usage: %s <old_file.wav> <new_file.wav> <filter cutoff>\nwhere filter cutoff is greater than 0.\n", argv[0]);
         goto CLEAN_UP;
     }
 
     // Optional command line arguments
-    for (int a = 1; a < argc; a++) {
-        printf("%s\n", argv[a]);
+    for (int a = 4; a < argc; a++) {
+        printf("%d\n", a);
     }
 
     
