@@ -56,8 +56,8 @@ int main( int argc, char *argv[]) {
     RingBuffer *ringBuf = NULL;
 
     // Coefficient variables
-    int N = 126;
-    double *coefficients = malloc((N+1)*sizeof(double));
+    int filter_order = 126;
+    double *coefficients = malloc((filter_order+1)*sizeof(double));
     int parameter_error = 0;
     double cutoff = 0;
     char *input_filename = NULL;
@@ -93,13 +93,44 @@ int main( int argc, char *argv[]) {
     }
 
     if (parameter_error) {
-        printf("Usage: %s <old_file.wav> <new_file.wav> <filter cutoff>\nwhere filter cutoff is greater than 0.\n", argv[0]);
+        printf("Usage:\n\n\t %s <old_file.wav> <new_file.wav> <filter cutoff>\n\nwhere filter cutoff is greater than 0.\n", argv[0]);
         goto CLEAN_UP;
     }
 
     // Optional command line arguments
     for (int a = 4; a < argc; a++) {
-        printf("%d\n", a);
+
+        if (!strcmp(argv[a], "-filterorder")) {
+
+            a++;
+            if(a >= argc) {
+                puts("Too few arguments supplied.");
+                goto CLEAN_UP;
+            }
+
+            filter_order = atoi(argv[a]);
+            printf("%d\n", filter_order);
+
+            if (filter_order < 1 || filter_order > 1000) {
+                puts("Filter order must be between 1 and 1000.");
+                goto CLEAN_UP;
+            }
+
+        } else if (!strcmp(argv[a], "-filtertype")) {
+            a++;
+
+            if (strcmp(argv[a], "lowpass")) {
+
+            } else if (strcmp(argv[a], "lowpass")) {
+
+            } else {
+                puts("Unrecognised filter type.");
+                goto CLEAN_UP;
+            }
+
+        } else {
+            printf("Command %s not recognised.", argv[a]);
+        }
     }
 
     
@@ -154,9 +185,9 @@ int main( int argc, char *argv[]) {
     }
 
     // Calculate coefficients
-    for (int x = 0; x <= N; x++) {
-        coefficients[x] = (0.54 - 0.46 * cos((2*M_PI*x)/N)) * 
-            (((2*cutoff)/SAMPLE_FREQUENCY) * sinc(((2*x - N)*cutoff)/SAMPLE_FREQUENCY));
+    for (int x = 0; x <= filter_order; x++) {
+        coefficients[x] = (0.54 - 0.46 * cos((2*M_PI*x)/filter_order)) * 
+            (((2*cutoff)/SAMPLE_FREQUENCY) * sinc(((2*x - filter_order)*cutoff)/SAMPLE_FREQUENCY));
     }
 
     // Read frames from input file into input buffer
@@ -171,7 +202,7 @@ int main( int argc, char *argv[]) {
             output_buffer[z] = 0;
 
             // Apply filter using coefficients and assign to output buffer
-            for (int x = 0; x <= N; x++) {
+            for (int x = 0; x <= filter_order; x++) {
                 output_buffer[z] += coefficients[x] * 
                     ringBuf->buffer[wrap((ringBuf->current_index) - x,ringBuf->length)];
             }
