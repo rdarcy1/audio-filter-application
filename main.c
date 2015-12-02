@@ -39,7 +39,10 @@ int wrap (int value, int max);
 
 enum float_clipping { DO_NOT_CLIP_FLOATS, CLIP_FLOATS };
 enum minheader { DO_NOT_MINIMISE_HDR, MINIMISE_HDR };
-enum auto_rescale { DO_NOT_AUTO_RESCALE, AUTO_RESCALE };  
+enum auto_rescale { DO_NOT_AUTO_RESCALE, AUTO_RESCALE };
+
+typedef enum { LOWPASS, HIGHPASS } filterType;
+filterType myFilterType;
 
 int main( int argc, char *argv[]) {
 
@@ -55,17 +58,19 @@ int main( int argc, char *argv[]) {
     float *output_buffer = NULL;
     RingBuffer *ringBuf = NULL;
 
-    // Coefficient variables
-    int filter_order = 126;
-    double *coefficients = malloc((filter_order+1)*sizeof(double));
-    int parameter_error = 0;
+    // Parameters to be supplied via command line
     double cutoff = 0;
     char *input_filename = NULL;
     char *output_filename = NULL;
+    int filter_order = 126;
+
+    double *coefficients = NULL;
+
+    // Error flags
+    int parameter_error = 0;
     int mem_error = 0;
 
     // Compulsory command line arguments
-
     // Check old filename, new filename and cutoff have been supplied
     if (!argv[1] || !argv[2] || !argv[3]) {
         parameter_error = 1;
@@ -93,7 +98,7 @@ int main( int argc, char *argv[]) {
     }
 
     if (parameter_error) {
-        printf("Usage:\n\n\t %s <old_file.wav> <new_file.wav> <filter cutoff>\n\nwhere filter cutoff is greater than 0.\n", argv[0]);
+        printf("Usage:\n\n\t %s <old filename> <new filename> <filter cutoff>\n\nwhere filter cutoff is greater than 0.\n", argv[0]);
         goto CLEAN_UP;
     }
 
@@ -102,6 +107,7 @@ int main( int argc, char *argv[]) {
 
         if (!strcmp(argv[a], "-filterorder")) {
 
+            // Get value of parameter with error checking
             a++;
             if(a >= argc) {
                 puts("Too few arguments supplied.");
@@ -109,7 +115,7 @@ int main( int argc, char *argv[]) {
             }
 
             filter_order = atoi(argv[a]);
-            printf("%d\n", filter_order);
+            printf("filter order: %d\n", filter_order);
 
             if (filter_order < 1 || filter_order > 1000) {
                 puts("Filter order must be between 1 and 1000.");
@@ -117,12 +123,21 @@ int main( int argc, char *argv[]) {
             }
 
         } else if (!strcmp(argv[a], "-filtertype")) {
+
+            // Get value of parameter with error checking
             a++;
+            if(a >= argc) {
+                puts("Too few arguments supplied.");
+                goto CLEAN_UP;
+            }
 
-            if (strcmp(argv[a], "lowpass")) {
-
-            } else if (strcmp(argv[a], "lowpass")) {
-
+            if (!strcmp(argv[a], "lowpass")) {
+                // Already a low pass filter
+                puts("lowpass filter chosen.");
+                myFilterType = LOWPASS;
+            } else if (!strcmp(argv[a], "highpass")) {
+                puts("highpass filter chosen.");
+                myFilterType = HIGHPASS;
             } else {
                 puts("Unrecognised filter type.");
                 goto CLEAN_UP;
@@ -184,10 +199,37 @@ int main( int argc, char *argv[]) {
         goto CLEAN_UP;
     }
 
+    // Coefficient variables
+    coefficients = calloc((filter_order+1),sizeof(double));
+    double hamming_coefficient;
+    double fourier_coefficient;
+
+
     // Calculate coefficients
-    for (int x = 0; x <= filter_order; x++) {
-        coefficients[x] = (0.54 - 0.46 * cos((2*M_PI*x)/filter_order)) * 
-            (((2*cutoff)/SAMPLE_FREQUENCY) * sinc(((2*x - filter_order)*cutoff)/SAMPLE_FREQUENCY));
+    for (int x = 0; x < filter_order; x++) {
+
+        hamming_coefficient = (0.54 - 0.46 * cos((2*M_PI*x)/filter_order));
+
+        switch (myFilterType) {
+            case LOWPASS:
+                printf("Lowpass\t");
+                fourier_coefficient = ((2*cutoff)/SAMPLE_FREQUENCY) * sinc(((2*x - filter_order)*cutoff)/SAMPLE_FREQUENCY);
+                break;
+            case HIGHPASS:
+                printf("Highpass\t");
+                if (!x)
+                    fourier_coefficient = 1 - ((2*cutoff)/SAMPLE_FREQUENCY);
+                else
+                    fourier_coefficient = ((-2*cutoff)/SAMPLE_FREQUENCY) * sinc(((2*x - filter_order)*cutoff)/SAMPLE_FREQUENCY);
+                break;
+            default:
+                puts("Unrecognised filter type when calculating coefficients.");
+                goto CLEAN_UP;
+        }
+
+        
+        coefficients[x] = hamming_coefficient * fourier_coefficient;
+        printf("%d\t%lf\t%lf\n", x, fourier_coefficient, coefficients[x]);
     }
 
     // Read frames from input file into input buffer
