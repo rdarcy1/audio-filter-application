@@ -19,8 +19,6 @@
 #define DELAY_IN_SAMPLES 1000
 #define DELAY_MIX 0.5
 
-#define SAMPLE_FREQUENCY 44100
-
 // To ensure that we do not use portsf to close a file that was never opened.
 #define INVALID_PORTSF_FID -1
 
@@ -105,6 +103,7 @@ int main( int argc, char *argv[]) {
     // Optional command line arguments
     for (int a = 4; a < argc; a++) {
 
+        // Filter order
         if (!strcmp(argv[a], "-filterorder")) {
 
             // Get value of parameter with error checking
@@ -122,6 +121,7 @@ int main( int argc, char *argv[]) {
                 goto CLEAN_UP;
             }
 
+        // Filter type
         } else if (!strcmp(argv[a], "-filtertype")) {
 
             // Get value of parameter with error checking
@@ -199,6 +199,10 @@ int main( int argc, char *argv[]) {
         goto CLEAN_UP;
     }
 
+    // Get sample rate
+    int sample_rate = audio_properties.srate;
+    printf("%d\n", sample_rate);
+
     // Coefficient variables
     coefficients = calloc((filter_order+1),sizeof(double));
     double hamming_coefficient;
@@ -206,21 +210,21 @@ int main( int argc, char *argv[]) {
 
 
     // Calculate coefficients
-    for (int x = 0; x < filter_order; x++) {
+    for (int x = 0; x <= filter_order; x++) {
 
         hamming_coefficient = (0.54 - 0.46 * cos((2*M_PI*x)/filter_order));
 
         switch (myFilterType) {
             case LOWPASS:
                 printf("Lowpass\t");
-                fourier_coefficient = ((2*cutoff)/SAMPLE_FREQUENCY) * sinc(((2*x - filter_order)*cutoff)/SAMPLE_FREQUENCY);
+                fourier_coefficient = ((2*cutoff)/sample_rate) * sinc(((2*x - filter_order)*cutoff)/sample_rate);
                 break;
             case HIGHPASS:
                 printf("Highpass\t");
-                if (!x)
-                    fourier_coefficient = 1 - ((2*cutoff)/SAMPLE_FREQUENCY);
+                if (x==64)
+                    fourier_coefficient = 1 - ((2*cutoff)/sample_rate);
                 else
-                    fourier_coefficient = ((-2*cutoff)/SAMPLE_FREQUENCY) * sinc(((2*x - filter_order)*cutoff)/SAMPLE_FREQUENCY);
+                    fourier_coefficient = ((-2*cutoff)/sample_rate) * sinc(((2*x - filter_order)*cutoff)/sample_rate);
                 break;
             default:
                 puts("Unrecognised filter type when calculating coefficients.");
