@@ -34,14 +34,18 @@ typedef struct {
 double sinc (double x);
 RingBuffer *RingBuffer_create (int length);
 void RingBuffer_destroy (RingBuffer *buffer_to_destroy);
-int wrap (int value, int max);
+int mod (int value, int max);
 
 enum float_clipping { DO_NOT_CLIP_FLOATS, CLIP_FLOATS };
 enum minheader { DO_NOT_MINIMISE_HDR, MINIMISE_HDR };
 enum auto_rescale { DO_NOT_AUTO_RESCALE, AUTO_RESCALE };
 
-typedef enum { LOWPASS, HIGHPASS } filterType;
-filterType myFilterType;
+typedef enum { LOWPASS, HIGHPASS } FILTERTYPE;
+FILTERTYPE filterType;
+
+typedef enum { HAMMING, HANNING, BARTLETT, BLACKMAN, RECTANGULAR } WINDOWTYPE;
+WINDOWTYPE windowType;
+
 
 int main( int argc, char *argv[]) {
 
@@ -62,6 +66,7 @@ int main( int argc, char *argv[]) {
     char *input_filename = NULL;
     char *output_filename = NULL;
     int filter_order = 126;
+    float user_volume = 1.;
 
     double *coefficients = NULL;
 
@@ -135,17 +140,60 @@ int main( int argc, char *argv[]) {
             if (!strcmp(argv[a], "lowpass")) {
                 // Already a low pass filter
                 puts("lowpass filter chosen.");
-                myFilterType = LOWPASS;
+                filterType = LOWPASS;
             } else if (!strcmp(argv[a], "highpass")) {
                 puts("highpass filter chosen.");
-                myFilterType = HIGHPASS;
+                filterType = HIGHPASS;
             } else {
                 puts("Unrecognised filter type.");
                 goto CLEAN_UP;
             }
 
+        // Window type
+        } else if (!strcmp(argv[a], "-windowtype")) {
+
+            // Get value of parameter with error checking
+            a++;
+            if(a >= argc) {
+                puts("Too few arguments supplied.");
+                goto CLEAN_UP;
+            }
+
+            if (!strcmp(argv[a], "hamming")) {
+                windowType = HAMMING;
+            } else if (!strcmp(argv[a], "hanning")) {
+                windowType = HANNING;
+            } else if (!strcmp(argv[a], "bartlett")) {
+                windowType = BARTLETT;
+            } else if (!strcmp(argv[a], "blackman")) {
+                windowType = BLACKMAN;
+            } else if (!strcmp(argv[a], "rectangular")) {
+                windowType = RECTANGULAR;
+            } else {
+                puts("Unrecognised window type.");
+                goto CLEAN_UP;
+            }
+
+        // Volume
+        } else if (!strcmp(argv[a], "-volume")) {
+
+            // Get value of parameter with error checking
+            a++;
+            if(a >= argc) {
+                puts("Too few arguments supplied.");
+                goto CLEAN_UP;
+            }
+
+            user_volume = atof(argv[a]);
+
+            if (user_volume <= 0 || user_volume > 2) {
+                puts("Volume must be greater than 0 and less than or equal to 2");
+                goto CLEAN_UP;
+            }
+
         } else {
             printf("Command %s not recognised.", argv[a]);
+            goto CLEAN_UP;
         }
     }
 
@@ -193,35 +241,53 @@ int main( int argc, char *argv[]) {
     output_buffer = (float*) malloc(buffer_memory);
     ringBuf = RingBuffer_create(filter_order+1);
 
-    // Check that memory has been allocated.
-    if (input_buffer == NULL || output_buffer == NULL || ringBuf == NULL) {
-        printf("Unable to allocate memory for all buffers.\n");
-        return_value = EXIT_FAILURE;
-        goto CLEAN_UP;
-    }
-
     // Get sample rate
     int sample_rate = audio_properties.srate;
 
     // Coefficient variables
     coefficients = calloc((filter_order+1),sizeof(double));
-    double hamming_coefficient;
+    double window_coefficient;
     double fourier_coefficient;
 
+    // Check that memory has been allocated.
+    if (input_buffer == NULL || output_buffer == NULL || ringBuf == NULL || coefficients == NULL) {
+        printf("Unable to allocate memory.\n");
+        return_value = EXIT_FAILURE;
+        goto CLEAN_UP;
+    }
 
     // Calculate coefficients
     for (int x = 0; x <= filter_order; x++) {
 
-        hamming_coefficient = (0.54 - 0.46 * cos((2*M_PI*x)/filter_order));
 
-        switch (myFilterType) {
+        switch (windowType) {
+            case HAMMING:
+                window_coefficient = 0.54 - 0.46 * cos((2*M_PI*x)/filter_order);
+                break;
+            case HANNING:
+                window_coefficient = 0.5 - 0.5 * cos((2*M_PI*x)/filter_order);
+                break;
+            case BARTLETT:
+                window_coefficient = (1 - (2*fabs(x - filter_order/2.)))/filter_order;
+                break;
+            case BLACKMAN:
+                window_coefficient = 0.42 - 0.5 * cos((2*M_PI*x)/filter_order) + 0.08 * cos((4*M_PI*x)/filter_order);
+                break;
+            case RECTANGULAR:
+                window_coefficient = 1;
+                break;
+            default:
+                puts("Unrecognised window type when calculating coefficients.");
+                goto CLEAN_UP;
+        }
+        
+
+        switch (filterType) {
             case LOWPASS:
-                printf("Lowpass\t");
                 fourier_coefficient = ((2*cutoff)/sample_rate) * sinc(((2*x - filter_order)*cutoff)/sample_rate);
                 break;
             case HIGHPASS:
-                printf("Highpass\t");
-                if (x==64)
+                if (x == filter_order/2 + 1)
                     fourier_coefficient = 1 - ((2*cutoff)/sample_rate);
                 else
                     fourier_coefficient = ((-2*cutoff)/sample_rate) * sinc(((2*x - filter_order)*cutoff)/sample_rate);
@@ -232,8 +298,8 @@ int main( int argc, char *argv[]) {
         }
 
         
-        coefficients[x] = hamming_coefficient * fourier_coefficient;
-        printf("%d\t%lf\t%lf\n", x, fourier_coefficient, coefficients[x]);
+        coefficients[x] = window_coefficient * fourier_coefficient;
+
     }
 
     int keep_looping = 1;
@@ -241,9 +307,10 @@ int main( int argc, char *argv[]) {
     while (keep_looping) { 
 
         // Read frames from input file into input buffer
-        if ((num_frames_read=psf_sndReadFloatFrames(in_fID, input_buffer, nFrames)) <= 0) {
-
-        // If end of file is reached:
+        num_frames_read = psf_sndReadFloatFrames(in_fID, input_buffer, nFrames);
+        
+        // If end of file is reached, perform one more loop with a buffer of 0s so as not to truncate
+        if (num_frames_read <= 0) {
 
             keep_looping = 0;
 
@@ -252,7 +319,7 @@ int main( int argc, char *argv[]) {
                 input_buffer[x] = 0;
             }
 
-            // Only loop and write the necessary number of frames;
+            // Only loop and write the necessary number of frames
             nFrames = num_frames_read = ringBuf->length;
         }
 
@@ -267,13 +334,14 @@ int main( int argc, char *argv[]) {
 
             // Apply filter using coefficients and assign to output buffer
             for (int x = 0; x <= filter_order; x++) {
-                output_buffer[z] += OUTPUT_SCALE_FACTOR * coefficients[x] * 
-                    ringBuf->buffer[wrap((ringBuf->current_index) - x,ringBuf->length)];
-                // printf("%d\n", wrap(x-(ringBuf->current_index) ,ringBuf->length));
+                output_buffer[z] += coefficients[x] * 
+                    ringBuf->buffer[mod((ringBuf->current_index) - x,ringBuf->length)];
             }
 
+            // Scale filtered sample
+            output_buffer[z] *= OUTPUT_SCALE_FACTOR * user_volume;
+
             // Increment the current index, wrapping so it does not exceed buffer length
-            // No need to call wrap() as current_index cannot be negative
             ringBuf->current_index = (ringBuf->current_index + 1) % ringBuf->length;
 
         }
@@ -367,7 +435,7 @@ void RingBuffer_destroy(RingBuffer *buffer_to_destroy)
 }
 
 // Wraps value between 0 and max; works with negative value
-int wrap (int value, int max)
+int mod (int value, int max)
 {
     return ((value < 0) ? ((value % max) + max) : value) % max;
 }
