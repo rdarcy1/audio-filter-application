@@ -11,13 +11,14 @@
 #include <string.h>
 #include "portsf.h"
 
+// Samples in input/output buffers
 #define NUM_SAMPLES_IN_FRAME 1024
+
+// Audio files must be mono
 #define NUM_CHANNELS 1
 
-
-#define MUTE_LEFT 0
-#define DELAY_IN_SAMPLES 1000
-#define DELAY_MIX 0.5
+// To prevent clipping because of Gibb's Phenomenom
+#define OUTPUT_SCALE_FACTOR 0.7
 
 // To ensure that we do not use portsf to close a file that was never opened.
 #define INVALID_PORTSF_FID -1
@@ -201,7 +202,6 @@ int main( int argc, char *argv[]) {
 
     // Get sample rate
     int sample_rate = audio_properties.srate;
-    printf("%d\n", sample_rate);
 
     // Coefficient variables
     coefficients = calloc((filter_order+1),sizeof(double));
@@ -238,19 +238,25 @@ int main( int argc, char *argv[]) {
 
     int keep_looping = 1;
 
-    
     while (keep_looping) { 
 
         // Read frames from input file into input buffer
         if ((num_frames_read=psf_sndReadFloatFrames(in_fID, input_buffer, nFrames)) <= 0) {
+
+        // If end of file is reached:
+
             keep_looping = 0;
 
             // Set input buffer to 0
-            for (int x = 0; x < NUM_SAMPLES_IN_FRAME; x++) {
+            for (int x = 0; x < ringBuf->length; x++) {
                 input_buffer[x] = 0;
-            }  
+            }
+
+            // Only loop and write the necessary number of frames;
+            nFrames = num_frames_read = ringBuf->length;
         }
 
+        // Loop through frames in input buffer
         for (int z = 0; z < nFrames; z++) {
 
             // Assign sample from input buffer to ring buffer
@@ -261,7 +267,7 @@ int main( int argc, char *argv[]) {
 
             // Apply filter using coefficients and assign to output buffer
             for (int x = 0; x <= filter_order; x++) {
-                output_buffer[z] += coefficients[x] * 
+                output_buffer[z] += OUTPUT_SCALE_FACTOR * coefficients[x] * 
                     ringBuf->buffer[wrap((ringBuf->current_index) - x,ringBuf->length)];
                 // printf("%d\n", wrap(x-(ringBuf->current_index) ,ringBuf->length));
             }
