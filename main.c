@@ -13,7 +13,7 @@
 
 #define NUM_SAMPLES_IN_FRAME 1024
 #define NUM_CHANNELS 1
-#define RING_BUF_LENGTH 50
+
 
 #define MUTE_LEFT 0
 #define DELAY_IN_SAMPLES 1000
@@ -116,8 +116,8 @@ int main( int argc, char *argv[]) {
             filter_order = atoi(argv[a]);
             printf("filter order: %d\n", filter_order);
 
-            if (filter_order < 1 || filter_order > 1000) {
-                puts("Filter order must be between 1 and 1000.");
+            if (filter_order < 1 || filter_order > 1000 || filter_order % 2) {
+                puts("Filter order must be even, and between 1 and 1000.");
                 goto CLEAN_UP;
             }
 
@@ -190,7 +190,7 @@ int main( int argc, char *argv[]) {
     // Allocate memory for buffers
     input_buffer = (float*) malloc(buffer_memory);
     output_buffer = (float*) malloc(buffer_memory);
-    ringBuf = RingBuffer_create(RING_BUF_LENGTH);
+    ringBuf = RingBuffer_create(filter_order+1);
 
     // Check that memory has been allocated.
     if (input_buffer == NULL || output_buffer == NULL || ringBuf == NULL) {
@@ -236,8 +236,20 @@ int main( int argc, char *argv[]) {
         printf("%d\t%lf\t%lf\n", x, fourier_coefficient, coefficients[x]);
     }
 
-    // Read frames from input file into input buffer
-    while ((num_frames_read=psf_sndReadFloatFrames(in_fID, input_buffer, nFrames)) > 0) { 
+    int keep_looping = 1;
+
+    
+    while (keep_looping) { 
+
+        // Read frames from input file into input buffer
+        if ((num_frames_read=psf_sndReadFloatFrames(in_fID, input_buffer, nFrames)) <= 0) {
+            keep_looping = 0;
+
+            // Set input buffer to 0
+            for (int x = 0; x < NUM_SAMPLES_IN_FRAME; x++) {
+                input_buffer[x] = 0;
+            }  
+        }
 
         for (int z = 0; z < nFrames; z++) {
 
@@ -251,6 +263,7 @@ int main( int argc, char *argv[]) {
             for (int x = 0; x <= filter_order; x++) {
                 output_buffer[z] += coefficients[x] * 
                     ringBuf->buffer[wrap((ringBuf->current_index) - x,ringBuf->length)];
+                // printf("%d\n", wrap(x-(ringBuf->current_index) ,ringBuf->length));
             }
 
             // Increment the current index, wrapping so it does not exceed buffer length
@@ -265,8 +278,8 @@ int main( int argc, char *argv[]) {
             return_value = EXIT_FAILURE;
             break;
         }
-    }
 
+    }
 
     // Handle errors when reading from input file
     if (num_frames_read<0) {

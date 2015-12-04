@@ -6,3 +6,5 @@ main
 ringbuftest
 
 build.sublime-build
+
+main_old.c
