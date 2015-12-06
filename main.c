@@ -1,10 +1,3 @@
-/*
-    Copy a wav file using the portsf library.
-
-    This is going to be as minimal as possible
-    with error checking.
-*/
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -102,7 +95,15 @@ int main( int argc, char *argv[]) {
     }
 
     if (parameter_error) {
-        printf("Usage:\n\n\t %s <old filename> <new filename> <filter cutoff>\n\nwhere filter cutoff is greater than 0.\n", argv[0]);
+        printf("Usage:\n\n\t %s <source_filename> <destination_filename> <cutoff> [options]\n\n"
+            "Filter cutoff must be greater than 0.\n\n"
+            "-filtertype (highpass | lowpass)\tFilter type to be applied. Defaults to lowpass if\n\t\t\t\t\toption not specified.\n\n"
+            "-filterorder <order>\t\t\tOrder of filter; must be even and in the range 2-1000.\n\n"
+            "-windowtype (hamming | hanning | blackman | bartlett | rectangular)\n"
+            "\t\t\t\t\tWindow type to be applied. Defaults to hamming if\n\t\t\t\t\toption not specified.\n\n"
+            "-volume <volume>\t\t\tValue to scale output by. Must be greater than 0 and less than 2.\n"
+            "\t\t\t\t\tWARNING: a value greater than 1 may cause clipping.\n"
+            , argv[0]);
         goto CLEAN_UP;
     }
 
@@ -122,7 +123,7 @@ int main( int argc, char *argv[]) {
             filter_order = atoi(argv[a]);
             printf("filter order: %d\n", filter_order);
 
-            if (filter_order < 1 || filter_order > 1000 || filter_order % 2) {
+            if (filter_order < 2 || filter_order > 1000 || filter_order % 2) {
                 puts("Filter order must be even, and between 1 and 1000.");
                 goto CLEAN_UP;
             }
@@ -259,7 +260,7 @@ int main( int argc, char *argv[]) {
     // Calculate coefficients
     for (int x = 0; x <= filter_order; x++) {
 
-
+        // Calculate window part of coefficient
         switch (windowType) {
             case HAMMING:
                 window_coefficient = 0.54 - 0.46 * cos((2*M_PI*x)/filter_order);
@@ -268,7 +269,7 @@ int main( int argc, char *argv[]) {
                 window_coefficient = 0.5 - 0.5 * cos((2*M_PI*x)/filter_order);
                 break;
             case BARTLETT:
-                window_coefficient = (1 - (2*fabs(x - filter_order/2.)))/filter_order;
+                window_coefficient = 1 - (2*fabs(x - filter_order/2.))/filter_order;
                 break;
             case BLACKMAN:
                 window_coefficient = 0.42 - 0.5 * cos((2*M_PI*x)/filter_order) + 0.08 * cos((4*M_PI*x)/filter_order);
@@ -281,7 +282,7 @@ int main( int argc, char *argv[]) {
                 goto CLEAN_UP;
         }
         
-
+        // Calculate filter part of coefficient
         switch (filterType) {
             case LOWPASS:
                 fourier_coefficient = ((2*cutoff)/sample_rate) * sinc(((2*x - filter_order)*cutoff)/sample_rate);
@@ -309,7 +310,7 @@ int main( int argc, char *argv[]) {
         // Read frames from input file into input buffer
         num_frames_read = psf_sndReadFloatFrames(in_fID, input_buffer, nFrames);
         
-        // If end of file is reached, perform one more loop with a buffer of 0s so as not to truncate
+        // If end of file is reached, perform one more loop with a buffer of 0s so as not to truncate audio
         if (num_frames_read <= 0) {
 
             keep_looping = 0;
