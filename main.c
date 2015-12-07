@@ -7,6 +7,9 @@
 // Samples in input/output buffers
 #define NUM_SAMPLES_IN_FRAME 1024
 
+// Maximum cutoff frequency in Hz
+#define CUTOFF_LIMIT 24000
+
 // Audio files must be mono
 #define NUM_CHANNELS 1
 
@@ -28,18 +31,18 @@ double sinc (double x);
 RingBuffer *RingBuffer_create (int length);
 void RingBuffer_destroy (RingBuffer *buffer_to_destroy);
 int mod (int value, int max);
-int str_to_double (char *str, double *value_pointer);
-int str_to_int (char *str, int *value_pointer);
+int str_to_double (char *str, double *output_value);
+int str_to_int (char *str, int *output_value);
 
 enum float_clipping { DO_NOT_CLIP_FLOATS, CLIP_FLOATS };
 enum minheader { DO_NOT_MINIMISE_HDR, MINIMISE_HDR };
 enum auto_rescale { DO_NOT_AUTO_RESCALE, AUTO_RESCALE };
 
-typedef enum { LOWPASS, HIGHPASS, BANDPASS } FILTERTYPE;
-FILTERTYPE filterType;
+typedef enum { LOWPASS, HIGHPASS, BANDPASS, BANDSTOP } FILTERTYPE;
+FILTERTYPE filterType = LOWPASS;
 
 typedef enum { HAMMING, HANNING, BARTLETT, BLACKMAN, RECTANGULAR } WINDOWTYPE;
-WINDOWTYPE windowType;
+WINDOWTYPE windowType = HAMMING;
 
 
 int main( int argc, char *argv[]) {
@@ -63,6 +66,7 @@ int main( int argc, char *argv[]) {
     float user_volume = 1.;
 
     double *coefficients = NULL;
+    double upper_cutoff;
 
     // Error flags
     int parameter_error = 0;
@@ -99,14 +103,18 @@ int main( int argc, char *argv[]) {
 
     if (parameter_error) {
         printf("Usage:\n\n\t %s <source_filename> <destination_filename> <cutoff> [options]\n\n"
-            "Filter cutoff must be greater than 0.\n\n"
-            "-filtertype (highpass | lowpass)\tFilter type to be applied. Defaults to lowpass if\n\t\t\t\t\toption not specified.\n\n"
+            "Filter cutoff is in Hertz and must be greater than 0 and less than %d.\n\n"
+            "Optional arguments:\n"
+            "-filtertype (highpass | lowpass | bandpass <upper cutoff> | bandstop <upper cutoff>)\n"
+            "\t\t\t\t\tFilter type to be applied. Defaults to lowpass if\n\t\t\t\t\toption not specified. 'bandpass' and 'bandstop'\n"
+            "\t\t\t\t\tmust be proceeded by an upper cutoff value which\n\t\t\t\t\tis greater than the required cutoff already\n"
+            "\t\t\t\t\tsupplied, and less than %d.\n\n"
             "-filterorder <order>\t\t\tOrder of filter; must be even and in the range 2-1000.\n\n"
             "-windowtype (hamming | hanning | blackman | bartlett | rectangular)\n"
             "\t\t\t\t\tWindow type to be applied. Defaults to hamming if\n\t\t\t\t\toption not specified.\n\n"
             "-volume <volume>\t\t\tValue to scale output by. Must be greater than 0 and less than 2.\n"
             "\t\t\t\t\tWARNING: a value greater than 1 may cause clipping.\n"
-            , argv[0]);
+            , argv[0], CUTOFF_LIMIT, CUTOFF_LIMIT);
         goto CLEAN_UP;
     }
 
@@ -147,6 +155,28 @@ int main( int argc, char *argv[]) {
             } else if (!strcmp(argv[a], "highpass")) {
                 puts("highpass filter chosen.");
                 filterType = HIGHPASS;
+
+            } else if (!strcmp(argv[a], "bandpass") || !strcmp(argv[a], "bandstop")) {
+                if (!strcmp(argv[a], "bandpass"))
+                    filterType = BANDPASS;
+                else
+                    filterType = BANDSTOP;
+
+                // Get upper cutoff for bandpass/bandstop
+                a++;
+                if(a >= argc) {
+                    puts("Too few arguments supplied.");
+                    goto CLEAN_UP;
+                }
+
+                int upper_cutoff_status = str_to_double(argv[a], &upper_cutoff);
+
+                if (upper_cutoff_status || upper_cutoff <= cutoff || upper_cutoff >= CUTOFF_LIMIT) {
+                    printf("Upper cutoff must proceed bandpass/bandstop filter type:\n\n\t-filtertype ( bandpass | bandstop ) <upper cutoff>\n\n"
+                        "Upper cutoff must be greater than the lower cutoff and less than %d\n", CUTOFF_LIMIT);
+                    goto CLEAN_UP;
+                }
+
             } else {
                 puts("Unrecognised filter type.");
                 goto CLEAN_UP;
@@ -162,17 +192,17 @@ int main( int argc, char *argv[]) {
                 goto CLEAN_UP;
             }
 
-            if (!strcmp(argv[a], "hamming")) {
+            if (!strcmp(argv[a], "hamming"))
                 windowType = HAMMING;
-            } else if (!strcmp(argv[a], "hanning")) {
+            else if (!strcmp(argv[a], "hanning"))
                 windowType = HANNING;
-            } else if (!strcmp(argv[a], "bartlett")) {
+            else if (!strcmp(argv[a], "bartlett"))
                 windowType = BARTLETT;
-            } else if (!strcmp(argv[a], "blackman")) {
+            else if (!strcmp(argv[a], "blackman"))
                 windowType = BLACKMAN;
-            } else if (!strcmp(argv[a], "rectangular")) {
+            else if (!strcmp(argv[a], "rectangular"))
                 windowType = RECTANGULAR;
-            } else {
+            else {
                 puts("Unrecognised window type.");
                 goto CLEAN_UP;
             }
@@ -284,19 +314,42 @@ int main( int argc, char *argv[]) {
         }
         
         // Calculate filter part of coefficient
+
+        // Define f_t for bandpass filters
+        double ft1, ft2;
+
         switch (filterType) {
             case LOWPASS:
                 fourier_coefficient = ((2*cutoff)/sample_rate) * sinc(((2*x - filter_order)*cutoff)/sample_rate);
                 break;
+
             case HIGHPASS:
                 if (x == filter_order/2)
                     fourier_coefficient = 1 - ((2*cutoff)/sample_rate);
                 else
                     fourier_coefficient = ((-2*cutoff)/sample_rate) * sinc(((2*x - filter_order)*cutoff)/sample_rate);
                 break;
-            case BANDPASS:
 
+            case BANDPASS:
+                ft1 = cutoff/sample_rate;
+                ft2 = upper_cutoff/sample_rate;
+                if (x == filter_order/2)
+                    fourier_coefficient = 2*(ft2 - ft1);
+                else
+                    fourier_coefficient = (sin(2.*M_PI*ft2*(x - filter_order/2.))/(M_PI*(x - filter_order/2.)))
+                        - (sin(2.*M_PI*ft1*(x - filter_order/2.))/(M_PI*(x - filter_order/2.)));
                 break;
+
+            case BANDSTOP:
+                ft1 = cutoff/sample_rate;
+                ft2 = upper_cutoff/sample_rate;
+                if (x == filter_order/2)
+                    fourier_coefficient = 1 - 2*(ft2 - ft1);
+                else
+                    fourier_coefficient = (sin(2.*M_PI*ft1*(x - filter_order/2.))/(M_PI*(x - filter_order/2.)))
+                        - (sin(2.*M_PI*ft2*(x - filter_order/2.))/(M_PI*(x - filter_order/2.)));
+                break;
+
             default:
                 puts("Unrecognised filter type when calculating coefficients.");
                 goto CLEAN_UP;
@@ -371,9 +424,7 @@ CLEAN_UP:
 
     // Free the memory for the buffers
     if (input_buffer) {
-        puts("Freeing input buffer");
         free(input_buffer);
-        puts("input buffer freed.");
     }
 
     RingBuffer_destroy(ringBuf);
@@ -437,23 +488,23 @@ int mod (int value, int max)
     return ((value < 0) ? ((value % max) + max) : value) % max;
 }
 
-int str_to_double (char *str, double *value_pointer) {
+int str_to_double (char *str, double *output_value) {
 
     char trailing_chars[sizeof(str)];
 
     // Check for the presence of a double and any trailing characters
-    int n = sscanf(str, "%lf%c", value_pointer, trailing_chars);
+    int n = sscanf(str, "%lf%c", output_value, trailing_chars);
 
     // Return status. Double value is outputted via the supplied pointer
     return n != 1;
 }
 
-int str_to_int (char *str, int *value_pointer) {
+int str_to_int (char *str, int *output_value) {
 
     char trailing_chars[sizeof(str)];
 
     // Check for the presence of an integer and any trailing characters
-    int n = sscanf(str, "%d%c", value_pointer, trailing_chars);
+    int n = sscanf(str, "%d%c", output_value, trailing_chars);
 
     // Return status. Integer value is outputted via the supplied pointer
     return n != 1;
