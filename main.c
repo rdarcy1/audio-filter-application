@@ -55,7 +55,7 @@ int main( int argc, char *argv[]) {
     int return_value = EXIT_SUCCESS;
     
     // Declare buffers
-    float *input_buffer = NULL;
+    float *block_buffer = NULL;
     RingBuffer *ringBuf = NULL;
 
     // Parameters to be supplied via command line
@@ -63,7 +63,7 @@ int main( int argc, char *argv[]) {
     char *input_filename = NULL;
     char *output_filename = NULL;
     int filter_order = 126;
-    float user_volume = 1.;
+    double user_volume = 1.;
 
     double *coefficients = NULL;
     double upper_cutoff;
@@ -105,14 +105,15 @@ int main( int argc, char *argv[]) {
             "Filter cutoff is in Hertz and must be greater than 0 and less than %d. For bandpass and\n"
             "bandstop filters this is the lower cutoff frequency.\n\n"
             "Optional arguments:\n"
-            "-filtertype (highpass | lowpass | bandpass <upper_cutoff> | bandstop <upper_cutoff>)\n"
+            "-filtertype (lowpass | highpass | bandpass <upper_cutoff> | bandstop <upper_cutoff>)\n"
             "\t\t\t\t\tFilter type to be applied. Defaults to lowpass if\n\t\t\t\t\toption not specified. 'bandpass' and 'bandstop'\n"
             "\t\t\t\t\tmust be proceeded by an upper cutoff value which\n\t\t\t\t\tis greater than the required cutoff already\n"
             "\t\t\t\t\tsupplied, and less than %d.\n\n"
-            "-filterorder <order>\t\t\tOrder of filter; must be even and in the range 2-1000.\n\n"
+            "-filterorder <order>\t\t\tOrder of filter; must be even and in the range\n\t\t\t\t\t"
+            "2-1000. Defaults to 126 if option not specified.\n\n"
             "-windowtype (hamming | hanning | blackman | bartlett | rectangular)\n"
             "\t\t\t\t\tWindow type to be applied. Defaults to hamming if\n\t\t\t\t\toption not specified.\n\n"
-            "-volume <volume>\t\t\tValue to scale output by. Must be greater than 0 and less than 2.\n"
+            "-volume <volume>\t\t\tValue to scale output by. Must be greater than 0\n\t\t\t\t\tand less than 5.\n"
             "\t\t\t\t\tWARNING: a value greater than 1 may cause clipping.\n\n"
             , argv[0], CUTOFF_LIMIT, CUTOFF_LIMIT);
         goto CLEAN_UP;
@@ -134,7 +135,7 @@ int main( int argc, char *argv[]) {
             int order_status = str_to_int(argv[a], &filter_order);
 
             if (order_status || filter_order < 2 || filter_order > 1000 || filter_order % 2) {
-                puts("Filter order must be an even integer, and between 1 and 1000.");
+                puts("Filter order must be an even integer, and between 2 and 1000.");
                 goto CLEAN_UP;
             }
 
@@ -149,13 +150,12 @@ int main( int argc, char *argv[]) {
             }
 
             if (!strcmp(argv[a], "lowpass")) {
-                // Already a low pass filter
-                puts("lowpass filter chosen.");
                 filterType = LOWPASS;
+
             } else if (!strcmp(argv[a], "highpass")) {
-                puts("highpass filter chosen.");
                 filterType = HIGHPASS;
 
+            // Same code used for getting the upper cutoff, so bandpass and bandstop are grouped
             } else if (!strcmp(argv[a], "bandpass") || !strcmp(argv[a], "bandstop")) {
                 if (!strcmp(argv[a], "bandpass"))
                     filterType = BANDPASS;
@@ -217,10 +217,10 @@ int main( int argc, char *argv[]) {
                 goto CLEAN_UP;
             }
 
-            user_volume = atof(argv[a]);
+            int user_volume_status = str_to_double(argv[a], &user_volume);
 
-            if (user_volume <= 0 || user_volume > 2) {
-                puts("Volume must be greater than 0 and less than or equal to 2");
+            if (user_volume_status || user_volume <= 0 || user_volume >= 5) {
+                puts("Volume must be greater than 0 and less than 5");
                 goto CLEAN_UP;
             }
 
@@ -264,13 +264,9 @@ int main( int argc, char *argv[]) {
         return_value = EXIT_FAILURE;
         goto CLEAN_UP;
     }
-  
-
-    // Calculate memory required for input and output buffers.
-    int buffer_memory = nFrames*audio_properties.chans*sizeof(float);
 
     // Allocate memory for buffers
-    input_buffer = (float*) malloc(buffer_memory);
+    block_buffer = (float*) malloc(nFrames*audio_properties.chans*sizeof(float));
     ringBuf = RingBuffer_create(filter_order+1);
 
     // Get sample rate
@@ -282,7 +278,7 @@ int main( int argc, char *argv[]) {
     double fourier_coefficient;
 
     // Check that memory has been allocated.
-    if (input_buffer == NULL || ringBuf == NULL || coefficients == NULL) {
+    if (block_buffer == NULL || ringBuf == NULL || coefficients == NULL) {
         printf("Unable to allocate memory.\n");
         return_value = EXIT_FAILURE;
         goto CLEAN_UP;
@@ -364,48 +360,48 @@ int main( int argc, char *argv[]) {
 
     while (keep_looping) { 
 
-        // Read frames from input file into input buffer
-        num_frames_read = psf_sndReadFloatFrames(in_fID, input_buffer, nFrames);
+        // Read frames from input file into buffer
+        num_frames_read = psf_sndReadFloatFrames(in_fID, block_buffer, nFrames);
         
         // If end of file is reached, perform one more loop with a buffer of 0s so as not to truncate audio
         if (num_frames_read <= 0) {
 
             keep_looping = 0;
 
-            // Set input buffer to 0
+            // Set block buffer to 0
             for (int x = 0; x < ringBuf->length; x++) {
-                input_buffer[x] = 0;
+                block_buffer[x] = 0;
             }
 
             // Only loop and write the necessary number of frames
             nFrames = num_frames_read = ringBuf->length;
         }
 
-        // Loop through frames in input buffer
+        // Loop through frames in block buffer
         for (int z = 0; z < nFrames; z++) {
 
-            // Assign sample from input buffer to ring buffer
-            ringBuf->buffer[ringBuf->current_index] = input_buffer[z];
+            // Assign sample from block buffer to ring buffer
+            ringBuf->buffer[ringBuf->current_index] = block_buffer[z];
 
-            // Clear current output buffer sample
-            input_buffer[z] = 0;
+            // Clear current block buffer sample
+            block_buffer[z] = 0;
 
-            // Apply filter using coefficients and assign to output buffer
+            // Apply filter using coefficients and assign to block buffer
             for (int x = 0; x <= filter_order; x++) {
-                input_buffer[z] += coefficients[x] * 
+                block_buffer[z] += coefficients[x] * 
                     ringBuf->buffer[mod((ringBuf->current_index) - x,ringBuf->length)];
             }
 
             // Scale filtered sample
-            input_buffer[z] *= OUTPUT_SCALE_FACTOR * user_volume;
+            block_buffer[z] *= OUTPUT_SCALE_FACTOR * user_volume;
 
             // Increment the current index, wrapping so it does not exceed buffer length
             ringBuf->current_index = (ringBuf->current_index + 1) % ringBuf->length;
 
         }
 
-        // Write the output buffer to the output file
-        if (psf_sndWriteFloatFrames(out_fID,input_buffer,num_frames_read)!=num_frames_read) {
+        // Write the block buffer to the output file
+        if (psf_sndWriteFloatFrames(out_fID,block_buffer,num_frames_read)!=num_frames_read) {
             printf("Unable to write to %s\n",output_filename);
             return_value = EXIT_FAILURE;
             break;
@@ -423,8 +419,8 @@ int main( int argc, char *argv[]) {
 CLEAN_UP:
 
     // Free the memory for the buffers
-    if (input_buffer) {
-        free(input_buffer);
+    if (block_buffer) {
+        free(block_buffer);
     }
 
     RingBuffer_destroy(ringBuf);
@@ -488,9 +484,10 @@ int mod (int value, int max)
     return ((value < 0) ? ((value % max) + max) : value) % max;
 }
 
+// Returns 0 on success
 int str_to_double (char *str, double *output_value) {
 
-    char trailing_chars[sizeof(str)];
+    char trailing_chars[sizeof(str)/sizeof(str[0])];
 
     // Check for the presence of a double and any trailing characters
     int n = sscanf(str, "%lf%c", output_value, trailing_chars);
@@ -499,9 +496,10 @@ int str_to_double (char *str, double *output_value) {
     return n != 1;
 }
 
+// Returns 0 on success
 int str_to_int (char *str, int *output_value) {
 
-    char trailing_chars[sizeof(str)];
+    char trailing_chars[sizeof(str)/sizeof(str[0])];
 
     // Check for the presence of an integer and any trailing characters
     int n = sscanf(str, "%d%c", output_value, trailing_chars);
