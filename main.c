@@ -93,7 +93,6 @@ int main( int argc, char *argv[]) {
         // Cutoff frequency
         if (str_to_double(argv[3], &cutoff))
             parameter_error = 1;
-        printf("%lf\n", cutoff);
     }
 
     if (mem_error) {
@@ -102,10 +101,11 @@ int main( int argc, char *argv[]) {
     }
 
     if (parameter_error) {
-        printf("Usage:\n\n\t %s <source_filename> <destination_filename> <cutoff> [options]\n\n"
-            "Filter cutoff is in Hertz and must be greater than 0 and less than %d.\n\n"
+        printf("Usage:\n\n\t %s <source_filename> <destination_filename> <filter_cutoff> [options]\n\n"
+            "Filter cutoff is in Hertz and must be greater than 0 and less than %d. For bandpass and\n"
+            "bandstop filters this is the lower cutoff frequency.\n\n"
             "Optional arguments:\n"
-            "-filtertype (highpass | lowpass | bandpass <upper cutoff> | bandstop <upper cutoff>)\n"
+            "-filtertype (highpass | lowpass | bandpass <upper_cutoff> | bandstop <upper_cutoff>)\n"
             "\t\t\t\t\tFilter type to be applied. Defaults to lowpass if\n\t\t\t\t\toption not specified. 'bandpass' and 'bandstop'\n"
             "\t\t\t\t\tmust be proceeded by an upper cutoff value which\n\t\t\t\t\tis greater than the required cutoff already\n"
             "\t\t\t\t\tsupplied, and less than %d.\n\n"
@@ -113,7 +113,7 @@ int main( int argc, char *argv[]) {
             "-windowtype (hamming | hanning | blackman | bartlett | rectangular)\n"
             "\t\t\t\t\tWindow type to be applied. Defaults to hamming if\n\t\t\t\t\toption not specified.\n\n"
             "-volume <volume>\t\t\tValue to scale output by. Must be greater than 0 and less than 2.\n"
-            "\t\t\t\t\tWARNING: a value greater than 1 may cause clipping.\n"
+            "\t\t\t\t\tWARNING: a value greater than 1 may cause clipping.\n\n"
             , argv[0], CUTOFF_LIMIT, CUTOFF_LIMIT);
         goto CLEAN_UP;
     }
